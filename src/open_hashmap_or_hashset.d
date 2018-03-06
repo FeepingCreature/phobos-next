@@ -294,7 +294,7 @@ struct OpenHashMapOrSet(K, V = void,
         typeof(this) dup()() const // template-lazy
             @trusted
         {
-            dln("dup");
+            // dln("dup");
             T[] binsCopy = cast(T[])allocateUninitializedBins(_bins.length);
             foreach (immutable index, ref element; _bins)
             {
@@ -536,9 +536,9 @@ struct OpenHashMapOrSet(K, V = void,
     bool contains()(const scope K key) const // template-lazy, auto ref here makes things slow
     {
         assert(!key.isNull);
+        if (_bins.length == 0) { return false; }
         immutable hitIndex = indexOfKeyOrVacancySkippingHoles(key);
-        return (hitIndex != _bins.length &&
-                isOccupiedAtIndex(hitIndex));
+        return (isOccupiedAtIndex(hitIndex));
     }
     static if (isInstanceOf!(Nullable, K))
     {
@@ -670,9 +670,7 @@ struct OpenHashMapOrSet(K, V = void,
                 {
                     alias predicate = (index, const auto ref element) => (keyOf(element).isNull || // free slot or TODO check holes
                                                                           !bt(dones, index)); // or a not yet replaced element
-                    immutable hitIndex = _bins[].triangularProbeFromIndex!(predicate)(keyToIndex(keyOf(currentElement)));
-                    assert(hitIndex != _bins.length, "no free slot");
-
+                    immutable hitIndex = _bins[].triangularProbeFromIndex!(predicate, true)(keyToIndex(keyOf(currentElement)));
                     bts(dones, hitIndex); // _bins[hitIndex] will be at it's correct position
 
                     if (!keyOf(_bins[hitIndex]).isNull()) // if free slot found
@@ -822,12 +820,10 @@ struct OpenHashMapOrSet(K, V = void,
         version(unittest) assert(!keyOf(element).isNull);
 
         immutable hitIndex = indexOfKeyOrVacancySkippingHoles(keyOf(element));
-        version(unittest) assert(hitIndex != _bins.length, "no free slot");
 
         if (keyOf(_bins[hitIndex]).isNull)
         {
             immutable hitIndex1 = indexOfHoleOrNullForKey(keyOf(element)); // try again to reuse hole
-            version(unittest) assert(hitIndex1 != _bins.length, "no null or hole slot");
             move(element,
                  _bins[hitIndex1]);
             static if (!hasAddressKey)
@@ -884,6 +880,7 @@ struct OpenHashMapOrSet(K, V = void,
             if (op == "in")
         {
             assert(!key.isNull);
+            if (_bins.length == 0) { return null; }
             immutable hitIndex = indexOfKeyOrVacancySkippingHoles(key);
             return (hitIndex != _bins.length &&
                     isOccupiedAtIndex(hitIndex)) ? &_bins[hitIndex] : null;
@@ -970,9 +967,10 @@ struct OpenHashMapOrSet(K, V = void,
         scope inout(V)* opBinaryRight(string op)(const scope K key) inout return // auto ref here makes things slow
             if (op == "in")
         {
+            assert(!key.isNull);
+            if (_bins.length == 0) { return null; }
             immutable hitIndex = indexOfKeyOrVacancySkippingHoles(key);
-            if (hitIndex != _bins.length &&
-                isOccupiedAtIndex(hitIndex))
+            if (isOccupiedAtIndex(hitIndex))
             {
                 return cast(typeof(return))&_bins[hitIndex].value;
             }
@@ -1082,15 +1080,16 @@ struct OpenHashMapOrSet(K, V = void,
         pragma(inline, true)    // LDC must have this
         scope ref inout(V) opIndex()(const scope K key) inout return // auto ref here makes things slow
         {
+            assert(!key.isNull);
+            import core.exception : RangeError;
+            if (_bins.length == 0) { throw new RangeError("key not found"); }
             immutable hitIndex = indexOfKeyOrVacancySkippingHoles(key);
-            if (hitIndex != _bins.length &&
-                isOccupiedAtIndex(hitIndex))
+            if (isOccupiedAtIndex(hitIndex))
             {
                 return _bins[hitIndex].value;
             }
             else
             {
-                import core.exception : RangeError;
                 throw new RangeError("key not found");
             }
         }
@@ -1160,9 +1159,9 @@ struct OpenHashMapOrSet(K, V = void,
     */
     bool remove()(const scope K key) // template-lazy
     {
+        if (_bins.length == 0) { return false; }
         immutable hitIndex = indexOfKeyOrVacancySkippingHoles(key);
-        if (hitIndex != _bins.length &&
-            isOccupiedAtIndex(hitIndex))
+        if (isOccupiedAtIndex(hitIndex))
         {
             nullifyElement(_bins[hitIndex]);
             makeHoleAtIndex(hitIndex);
@@ -1271,7 +1270,7 @@ private:
                                                                keyOf(element) is key);
             }
         }
-        return _bins[].triangularProbeFromIndex!(predicate)(keyToIndex(key));
+        return _bins[].triangularProbeFromIndex!(predicate, true)(keyToIndex(key));
     }
 
     private size_t indexOfHoleOrNullForKey(const scope K key) const @trusted
@@ -1310,7 +1309,7 @@ private:
                                                                keyOf(element).isNull);
             }
         }
-        return _bins[].triangularProbeFromIndex!(predicate)(keyToIndex(key));
+        return _bins[].triangularProbeFromIndex!(predicate, true)(keyToIndex(key));
     }
 
     /** Returns: `true` iff `index` indexes a non-null element, `false`
@@ -2069,8 +2068,8 @@ version(unittest)
     {
         foreach (V; AliasSeq!(void, /*TODO string*/))
         {
-            dln("K:", K.stringof,
-                " V:", V.stringof);
+            // dln("K:", K.stringof,
+            //     " V:", V.stringof);
 
             alias X = OpenHashMapOrSet!(K, V, FNV!(64, true));
 
@@ -2195,22 +2194,22 @@ version(unittest)
             import std.array : Appender;
             Appender!(K[]) keys;
 
-            import core.memory : GC;
-            GC.disable();
-            dln("TODO remove disabling of GC");
+            // import core.memory : GC;
+            // GC.disable();
+            // dln("TODO remove disabling of GC");
 
-            dln(X.stringof);
+            // dln(X.stringof);
             foreach (immutable key_; 0 .. n)
             {
-                dln("key_:", key_);
-                static if (X.hasValue)
-                {
-                    if (key_ == 2)
-                    {
-                        dln("before");
-                        dln(x1.byKeyValue);
-                    }
-                }
+                // dln("key_:", key_);
+                // static if (X.hasValue)
+                // {
+                //     if (key_ == 2)
+                //     {
+                //         dln("before");
+                //         dln(x1.byKeyValue);
+                //     }
+                // }
 
                 auto key = make!K(key_);
                 keys.put(key);
@@ -2231,17 +2230,17 @@ version(unittest)
                 assert(x1.length == key.get);
                 static if (is(V == string))
                 {
-                    if (key_ == 2)
-                    {
-                        import std.algorithm : map;
-                        dln("inserting key_:", key_, " length:", x1._bins.length,
-                            " bins:", x1._bins[].map!(_ => _.key));
-                    }
+                    // if (key_ == 2)
+                    // {
+                    //     import std.algorithm : map;
+                    //     dln("inserting key_:", key_, " length:", x1._bins.length,
+                    //         " bins:", x1._bins[].map!(_ => _.key));
+                    // }
                 }
                 assert(x1.insert(element) == X.InsertionStatus.added);
                 if (key_ == 2)
                 {
-                    dln("inserted key_:", key_);
+                    // dln("inserted key_:", key_);
                 }
                 assert(x1.length == key.get + 1);
 
